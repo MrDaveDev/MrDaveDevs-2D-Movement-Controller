@@ -1,168 +1,239 @@
-/*
- * MrDaveDev's 2D Movement Controller (Lite Edition)
- * Written by MrDaveDev
- * Copyright © 2026 MrDaveDev
- */
-
+using System.Collections;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
-namespace MrDaveDev.Movement {
-    [RequireComponent(typeof(Rigidbody2D))]
-    public class PlayerMovement : MonoBehaviour
+[RequireComponent(typeof(Rigidbody2D))]
+public class PlayerMovement : MonoBehaviour
+{
+    [Header("References")]
+    public Rigidbody2D rb;
+    public Animator anim;
+    public ParticleSystem trail, landParticles;
+    public AudioSource stepAudio;
+    public AudioSource landAudio;
+    [Space] 
+    public Transform hands;
+    public SpriteRenderer face;
+    public Sprite normalFace;
+    public Sprite blinkFace;
+    
+    [Header("Movement Settings")]
+    public float maxSpeed = 12f;
+    public float timeToMax = 0.2f, timeToStop = 0.15f, timeToTurn = 0.1f;
+    [Space] public float airTimeToMax = 0.2f;
+    public float airTimeToStop = 0.5f;
+
+    [Header("Jump Settings")] 
+    [Tooltip("Shorter jumps when the jump button is tapped.")] public bool variableJumpHeight;
+    [Space] public float jumpHeight = 3;
+    public float timeToPeak = 0.25f, timeInAir = 0.1f;
+    
+    [Space] [Min(1f)] public float gravity = 6f;
+    public float coyoteTiming = 0.15f;
+
+    private float x;
+    private float peakTimer, jumpTimer, jumpGravity, currentCoyote;
+    private float fallGravity = -9.81f;
+    private float blinkTimer = 0f, blinkDuration = 0.1f;
+    
+    private bool ascending, hanging;
+    private bool spawnParticles = false;
+    private bool canJump, hasJumped;
+    private bool blinking = false;
+    private bool spaceDown = false, startHang = false;
+
+    void FixedUpdate()
     {
-        private Rigidbody2D rb;
-        
-        [Header("Movement Settings")]
-        [Tooltip("The layer of objects that the player can jump from.")] public LayerMask groundLayer;
-        [Space] [Tooltip("Max velocity of player, on x-axis.")] public float maxSpeed = 12f;
-        [Tooltip("Number of player sprites that fit below the player, at the peak of the jump.")] public float jumpHeight = 3;
-    
-        // Movement
-        private float horizontalInput;
-        private float ascentTimer, ascentGravity, coyoteTimer;
-        
-        // Jump states
-        private bool isAscending;
-        private bool canCoyoteJump, hasJumped;
-    
-        private void Awake()
+        if (x != 0)
         {
-            rb = GetComponent<Rigidbody2D>();
-        }
-    
-        private void FixedUpdate()
-        {
-            var isGrounded = IsGrounded();
+            float groundAcceleration = maxSpeed / timeToMax;
+            float airAcceleration = maxSpeed / airTimeToMax;
             
-            HandleHorizontalMovement(isGrounded);
-            HandleJumpPhysics();
-            HandleCoyoteTime(isGrounded);
-    
-            // Reset the jump state after landing.
-            if (isGrounded && !isAscending) hasJumped = false;
-        }
-    
-        private void HandleHorizontalMovement(bool isGrounded)
-        {
-            // Calculate acceleration based on how quickly the player should reach the max speed.
-            if (horizontalInput != 0)
+            if (Mathf.Sign(x) != Mathf.Sign(rb.linearVelocity.x))
             {
-                var groundAcceleration = maxSpeed / 0.2f;
-                var airAcceleration = maxSpeed / 0.2f;
-                
-                // Use a separate acceleration when changing the direction, so the player can turn quickly.
-                if (!Mathf.Approximately(Mathf.Sign(horizontalInput), Mathf.Sign(rb.linearVelocity.x)))
-                {
-                    groundAcceleration = maxSpeed / 0.1f;
-                    airAcceleration = maxSpeed / 0.1f;
-                }
-                
-                // Ground and air movement use different acceleration values.
-                if (isGrounded) rb.linearVelocity += new Vector2(groundAcceleration * horizontalInput * Time.fixedDeltaTime, 0);
-                else rb.linearVelocity += new Vector2(airAcceleration * horizontalInput * Time.fixedDeltaTime, 0);
-            }
-            else
-            {
-                // Slow down the player when there is no movement input.
-                // Takes different amount of time to slow down in the air vs on the ground.
-                rb.linearVelocity = IsGrounded() ? new Vector2(Mathf.MoveTowards(rb.linearVelocity.x, 0f, (maxSpeed / 0.15f) * Time.fixedDeltaTime), rb.linearVelocity.y) : new Vector2(Mathf.MoveTowards(rb.linearVelocity.x, 0f, (maxSpeed / 0.5f) * Time.fixedDeltaTime), rb.linearVelocity.y);
+                groundAcceleration = maxSpeed / timeToTurn;
+                airAcceleration = maxSpeed / timeToTurn;
             }
             
-            // Prevent the player from being faster than the max speed.
-            rb.linearVelocity = new Vector2(
-                Mathf.Clamp(rb.linearVelocity.x, -maxSpeed, maxSpeed),
-                Mathf.Clamp(rb.linearVelocity.y, -22, Mathf.Infinity)
+            if (IsGrounded()) rb.linearVelocity += new Vector2(groundAcceleration * x * Time.fixedDeltaTime, 0);
+            else rb.linearVelocity += new Vector2(airAcceleration * x * Time.fixedDeltaTime, 0);
+
+            stepAudio.pitch = Random.Range(0.95f, 1.05f);
+            stepAudio.volume = Random.Range(0.4f, 0.5f) * (Mathf.Abs(rb.linearVelocity.x) / maxSpeed);
+            if (!stepAudio.isPlaying && IsGrounded()) stepAudio.Play();
+        }
+        else
+        {
+            if (IsGrounded()) rb.linearVelocity = new Vector2(Mathf.MoveTowards(rb.linearVelocity.x, 0f, (maxSpeed / timeToStop) * Time.fixedDeltaTime), rb.linearVelocity.y);
+            else rb.linearVelocity = new Vector2(Mathf.MoveTowards(rb.linearVelocity.x, 0f, (maxSpeed / airTimeToStop) * Time.fixedDeltaTime), rb.linearVelocity.y);
+        }
+        
+        if (stepAudio.isPlaying && (x == 0 || !IsGrounded())) stepAudio.volume = stepAudio.volume * (Mathf.Abs(rb.linearVelocity.x) / maxSpeed);;
+
+        if (stepAudio.isPlaying && stepAudio.volume == 0 || !IsGrounded()) stepAudio.Stop();
+
+        rb.linearVelocity = new Vector2(
+            Mathf.Clamp(rb.linearVelocity.x, -maxSpeed, maxSpeed),
+            Mathf.Clamp(rb.linearVelocity.y, -22f, Mathf.Infinity)
+        );
+
+        if (rb.linearVelocity.y < 0 && x == 0) // When guns are added, make sure this doesn't run when a gun is equipped.
+        {
+            hands.position = new Vector3(transform.position.x, transform.position.y - rb.linearVelocity.y * Time.fixedDeltaTime, transform.position.z);
+        }
+        else
+        {
+            hands.position = new Vector3(transform.position.x, Mathf.MoveTowards(hands.position.y, transform.position.y, .1f), transform.position.z);
+        }
+
+        if (ascending)
+        {
+            jumpTimer += Time.fixedDeltaTime;
+
+            rb.linearVelocity += new Vector2(
+                0f,
+                jumpGravity * Time.fixedDeltaTime
+            );
+
+            if (jumpTimer >= timeToPeak && spaceDown)
+            {
+                rb.linearVelocity = new Vector2(
+                    rb.linearVelocity.x,
+                    0f
+                );
+
+                ascending = false;
+                hanging = true;
+                peakTimer = 0f;
+            }
+        }
+        else if (hanging && (spaceDown || startHang))
+        {
+            startHang = true;
+            peakTimer += Time.fixedDeltaTime;
+
+            if (peakTimer >= timeInAir)
+            {
+                hanging = false;
+            }
+        }
+        else
+        {
+            startHang = false;
+            rb.linearVelocity += new Vector2(
+                0f,
+                fallGravity * gravity * Time.fixedDeltaTime
             );
         }
-    
-        private void HandleJumpPhysics()
+
+        if (hanging)
         {
-            // Apply custom gravity while ascending.
-            if (isAscending)
+            peakTimer += Time.fixedDeltaTime;
+
+            if (peakTimer >= timeInAir)
             {
-                ascentTimer += Time.fixedDeltaTime;
-    
-                rb.linearVelocity += new Vector2(0f, ascentGravity * Time.fixedDeltaTime);
-    
-                // If the player reaches their peak height, stop their vertical movement and begin the 0.1f.
-                if (ascentTimer >= 0.25f)
-                {
-                    rb.linearVelocity = new Vector2(rb.linearVelocity.x, 0f);
-    
-                    isAscending = false;
-                }
+                hanging = false;
+            }
+        }
+
+        if (!IsGrounded())
+        {
+            spawnParticles = true;
+            trail.Stop();
+
+            if (currentCoyote <= coyoteTiming && !hasJumped)
+            {
+                canJump = true;
+                currentCoyote += Time.fixedDeltaTime;
             }
             else
             {
-                if (!IsGrounded())
-                {
-                    // Once the player is no longer ascending or hanging, apply normal gravity.
-                    rb.linearVelocity += new Vector2(0f, -9.81f * 6 * Time.fixedDeltaTime);
-                }
+                canJump = false;
             }
         }
-    
-        private void HandleCoyoteTime(bool isGrounded)
+        else if (IsGrounded() && trail.isStopped)
         {
-            // Allow the player to jump for a short time after leaving the ground.
-            if (!isGrounded)
-            {
-                if (coyoteTimer <= 0.15f && !hasJumped)
-                {
-                    canCoyoteJump = true;
-                    coyoteTimer += Time.fixedDeltaTime;
-                }
-                else
-                {
-                    canCoyoteJump = false;
-                }
-            }
-            
-            // Reset the coyote timer once the player has been grounded.
-            if (isGrounded && !isAscending && coyoteTimer >= 0.15f)
-            {
-                coyoteTimer = 0;
-            }
+            trail.Play();
         }
-    
-        public void Move(InputAction.CallbackContext context)
+
+        
+        if (IsGrounded() && !ascending && spawnParticles)
         {
-            // Stores the horizontal input.
-            horizontalInput = context.ReadValue<Vector2>().x;
+            landAudio.Play();
+            var temp = Instantiate(landParticles, new Vector3(transform.position.x, transform.position.y - 0.4f, transform.position.z), Quaternion.Euler(Vector3.zero)).GetComponent<ParticleSystem>();
+            temp.Play();
+            spawnParticles = false;
+            hasJumped = false;
+        }
+
+        if (IsGrounded() && !ascending && currentCoyote >= coyoteTiming)
+        {
+            currentCoyote = 0;
         }
         
-        public void Jump(InputAction.CallbackContext context)
+        anim.SetFloat("x", x);
+        anim.SetFloat("Move", Mathf.Abs(x));
+        
+        blinkTimer += Time.fixedDeltaTime;
+
+        if (!blinking && blinkTimer >= Random.Range(3f, 6f))
         {
-            // Only allow jumping while grounded or during the coyote time window.
-            if ((IsGrounded() || canCoyoteJump) && context.performed)
-            {
-                hasJumped = true;
-                canCoyoteJump = false;
-                
-                // Set the jump height to match the character's height.
-                var height = jumpHeight * 0.981038f;
-    
-                // Calculate the gravity to reach the height in 0.25f seconds.
-                ascentGravity = -(2f * height) / (0.25f * 0.25f);
-    
-                // Calculate the velocity to reach the peak.
-                var jumpVel = -ascentGravity * 0.25f;
-    
-                rb.linearVelocity = new Vector2(rb.linearVelocity.x, jumpVel);
-    
-                // Begin the ascending state of the jump.
-                isAscending = true;
-                ascentTimer = 0f;
-            }
-        }
-    
-        // Returns true when the player is close enough to the ground to jump.
-        private bool IsGrounded()
-        {
-            Bounds bounds = GetComponent<Collider2D>().bounds;
+            blinking = true;
+            blinkTimer = 0f;
             
-            return Physics2D.OverlapCircle(new Vector2(bounds.center.x, bounds.min.y), 0.3f, groundLayer);
+            face.sprite = blinkFace;
         }
+
+        if (blinking && blinkTimer >= blinkDuration)
+        {
+            blinking = false;
+            blinkTimer = 0f;
+
+            face.sprite = normalFace;
+        }
+    }
+
+    public void Move(InputAction.CallbackContext context)
+    {
+        x = context.ReadValue<Vector2>().x;
+    }
+    
+    public void Jump(InputAction.CallbackContext context)
+    {
+        if ((IsGrounded() || canJump) && context.performed)
+        {
+            hasJumped = true;
+            canJump = false;
+            
+            float height = jumpHeight * 0.981038f;
+
+            jumpGravity = -(2f * height) / (timeToPeak * timeToPeak);
+
+            float jumpVel = -jumpGravity * timeToPeak;
+
+            rb.linearVelocity = new Vector2(
+                rb.linearVelocity.x,
+                jumpVel
+            );
+
+            spaceDown = true;
+            ascending = true;
+            hanging = false;
+            jumpTimer = 0f;
+            peakTimer = 0f;
+        }
+
+        if (context.canceled && ascending && variableJumpHeight)
+        {
+            rb.linearVelocity = new Vector2(rb.linearVelocity.x, 0f);
+
+            spaceDown = false;
+        }
+    }
+
+    // Returns true, if player character is close enough to the ground.
+    public bool IsGrounded()
+    {
+        return Physics2D.OverlapCircle(transform.localPosition - new Vector3(0f, 0.5f, 0f), 0.2f, LayerMask.GetMask("Ground"));
     }
 }

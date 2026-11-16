@@ -11,11 +11,6 @@ public class PlayerMovement : MonoBehaviour
     public ParticleSystem trail, landParticles;
     public AudioSource stepAudio;
     public AudioSource landAudio;
-    [Space] 
-    public Transform hands;
-    public SpriteRenderer face;
-    public Sprite normalFace;
-    public Sprite blinkFace;
     
     [Header("Movement Settings")]
     public float maxSpeed = 12f;
@@ -34,12 +29,10 @@ public class PlayerMovement : MonoBehaviour
     private float x;
     private float peakTimer, jumpTimer, jumpGravity, currentCoyote;
     private float fallGravity = -9.81f;
-    private float blinkTimer = 0f, blinkDuration = 0.1f;
     
     private bool ascending, hanging;
     private bool spawnParticles = false;
     private bool canJump, hasJumped;
-    private bool blinking = false;
     private bool spaceDown = false, startHang = false;
 
     void FixedUpdate()
@@ -76,15 +69,6 @@ public class PlayerMovement : MonoBehaviour
             Mathf.Clamp(rb.linearVelocity.x, -maxSpeed, maxSpeed),
             Mathf.Clamp(rb.linearVelocity.y, -22f, Mathf.Infinity)
         );
-
-        if (rb.linearVelocity.y < 0 && x == 0) // When guns are added, make sure this doesn't run when a gun is equipped.
-        {
-            hands.position = new Vector3(transform.position.x, transform.position.y - rb.linearVelocity.y * Time.fixedDeltaTime, transform.position.z);
-        }
-        else
-        {
-            hands.position = new Vector3(transform.position.x, Mathf.MoveTowards(hands.position.y, transform.position.y, .1f), transform.position.z);
-        }
 
         if (ascending)
         {
@@ -173,24 +157,6 @@ public class PlayerMovement : MonoBehaviour
         
         anim.SetFloat("x", x);
         anim.SetFloat("Move", Mathf.Abs(x));
-        
-        blinkTimer += Time.fixedDeltaTime;
-
-        if (!blinking && blinkTimer >= Random.Range(3f, 6f))
-        {
-            blinking = true;
-            blinkTimer = 0f;
-            
-            face.sprite = blinkFace;
-        }
-
-        if (blinking && blinkTimer >= blinkDuration)
-        {
-            blinking = false;
-            blinkTimer = 0f;
-
-            face.sprite = normalFace;
-        }
     }
 
     public void Move(InputAction.CallbackContext context)
